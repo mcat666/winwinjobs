@@ -33,6 +33,7 @@ export default function App() {
     description: '',
     hours: '',
     location: '',
+    pay: '',
   });
   const [role, setRole] = useState('client');
 
@@ -89,7 +90,7 @@ export default function App() {
         description: newJob.description || '',
         hours: newJob.hours || '',
         location: newJob.location || '',
-        pay: Number(newJob.hours || 1) * 25,
+        pay: Number(newJob.pay || 0),
 
         status: 'open',
         clientId: user.uid,
@@ -109,13 +110,13 @@ export default function App() {
 
       setJobs(updated);
 
-      // Reset form properly
       setNewJob({
         title: '',
         category: '',
         description: '',
         hours: '',
         location: '',
+        pay: '',
       });
 
     } catch (err) {
@@ -337,6 +338,24 @@ export default function App() {
 
           <br />
 
+          <input
+            type="number"
+            placeholder="Pay (£)"
+            value={newJob.pay}
+            onChange={(e) =>
+              setNewJob({
+                ...newJob,
+                pay: e.target.value
+              })
+            }
+            style={{
+              padding: 8,
+              marginBottom: 10,
+              width: 300
+            }}
+          />
+
+          <br />
           <textarea
             placeholder="Description"
             value={newJob.description}
