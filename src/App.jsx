@@ -13,6 +13,18 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [jobs, setJobs] = useState([]);
 
+  const clientJobs = jobs.filter(
+    (job) => job.clientId === user?.uid
+  );
+
+  const workerJobs = jobs.filter(
+    (job) => job.workerId === user?.uid
+  );
+
+  const openJobs = jobs.filter(
+    (job) => job.status === 'open'
+  );
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [newJob, setNewJob] = useState({
@@ -22,6 +34,7 @@ export default function App() {
     hours: '',
     location: '',
   });
+  const [role, setRole] = useState('client');
 
   // ---------------- AUTH ----------------
   useEffect(() => {
@@ -165,6 +178,28 @@ export default function App() {
           }}
         />
 
+        <div style={{ marginBottom: 10 }}>
+          <label>
+            <input
+              type="radio"
+              value="client"
+              checked={role === 'client'}
+              onChange={(e) => setRole(e.target.value)}
+            />
+            Client
+          </label>
+
+          <label style={{ marginLeft: 20 }}>
+            <input
+              type="radio"
+              value="worker"
+              checked={role === 'worker'}
+              onChange={(e) => setRole(e.target.value)}
+            />
+            Worker
+          </label>
+        </div>
+
         <button
           onClick={async () => {
             try {
@@ -174,7 +209,7 @@ export default function App() {
 
               console.log("USER CREATED:", cred.user.uid);
 
-              await createUserProfile(cred.user, 'client');
+              await createUserProfile(cred.user, role);
 
             } catch (err) {
               console.error(err);
@@ -228,6 +263,8 @@ export default function App() {
       <p>
         Logged in as: <b>{user.email}</b> ({user.role})
       </p>
+
+
 
       <button
         onClick={() => {
@@ -333,27 +370,68 @@ export default function App() {
         </>
       )}
 
-      {/* JOB LIST */}
-      <h2>Available Jobs</h2>
+      {/* CLIENT DASHBOARD */}
+      {user.role === 'client' && (
+        <>
+          <h2>My Posted Jobs</h2>
 
-      {jobs.length === 0 && <p>No jobs yet</p>}
+          {clientJobs.length === 0 && (
+            <p>No jobs posted yet</p>
+          )}
 
-      {jobs.map((job) => (
-        <div
-          key={job.id}
-          style={{
-            border: '1px solid #ddd',
-            padding: 15,
-            marginBottom: 10,
-            borderRadius: 8
-          }}
-        >
-          <h3>{job.title}</h3>
+          {clientJobs.map((job) => (
+            <div
+              key={job.id}
+              style={{
+                border: '1px solid #ddd',
+                padding: 15,
+                marginBottom: 10,
+                borderRadius: 8
+              }}
+            >
+              <h3>{job.title}</h3>
 
-          <p>Status: {job.status}</p>
+              <p>Status: {job.status}</p>
 
-          {user.role === 'worker' &&
-            job.status?.toLowerCase() === 'open' && (
+              <p>Location: {job.location}</p>
+
+              <p>Pay: £{job.pay}</p>
+
+              {job.workerId && (
+                <p>Worker Assigned ✅</p>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* WORKER DASHBOARD */}
+      {user.role === 'worker' && (
+        <>
+          <h2>Available Jobs</h2>
+
+          {openJobs.length === 0 && (
+            <p>No open jobs right now</p>
+          )}
+
+          {openJobs.map((job) => (
+            <div
+              key={job.id}
+              style={{
+                border: '1px solid #ddd',
+                padding: 15,
+                marginBottom: 10,
+                borderRadius: 8
+              }}
+            >
+              <h3>{job.title}</h3>
+
+              <p>{job.description}</p>
+
+              <p>Location: {job.location}</p>
+
+              <p>Pay: £{job.pay}</p>
+
               <button
                 onClick={() => acceptJob(job.id)}
                 style={{
@@ -366,9 +444,37 @@ export default function App() {
               >
                 Accept Job
               </button>
-            )}
-        </div>
-      ))}
+            </div>
+          ))}
+
+          <hr />
+
+          <h2>My Accepted Jobs</h2>
+
+          {workerJobs.length === 0 && (
+            <p>No accepted jobs yet</p>
+          )}
+
+          {workerJobs.map((job) => (
+            <div
+              key={job.id}
+              style={{
+                border: '1px solid #ddd',
+                padding: 15,
+                marginBottom: 10,
+                borderRadius: 8,
+                background: '#f9f9f9'
+              }}
+            >
+              <h3>{job.title}</h3>
+
+              <p>Status: {job.status}</p>
+
+              <p>Location: {job.location}</p>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
