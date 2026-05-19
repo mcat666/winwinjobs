@@ -1,3 +1,8 @@
+import {
+  createReview,
+  fetchReviewsForUser
+} from './services/reviews';
+
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -37,6 +42,11 @@ export default function App() {
   });
   const [role, setRole] = useState('client');
 
+  const [reviewText, setReviewText] = useState('');
+  const [rating, setRating] = useState(5);
+
+  const [reviews, setReviews] = useState([]);
+
   // ---------------- AUTH ----------------
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -64,13 +74,25 @@ export default function App() {
 
   // ---------------- LOAD JOBS ----------------
   useEffect(() => {
-    const loadJobs = async () => {
-      const data = await fetchJobs();
-      setJobs(data);
+
+    const loadData = async () => {
+
+      // Load jobs
+      const allJobs = await fetchJobs();
+      setJobs(allJobs);
+
+      // Load reviews for current user
+      const workerReviews =
+        await fetchReviewsForUser(user.uid);
+
+      setReviews(workerReviews);
     };
 
-    loadJobs();
-  }, []);
+    if (user) {
+      loadData();
+    }
+
+  }, [user]);
 
   // ---------------- CREATE JOB ----------------
   const handleCreateJob = async () => {
@@ -144,6 +166,48 @@ export default function App() {
 
     } catch (err) {
       console.error("ACCEPT ERROR:", err);
+      alert(err.message);
+    }
+  };
+
+  const updateJobStatus = async (jobId, status) => {
+    try {
+      const jobRef = doc(db, 'jobs', jobId);
+
+      await updateDoc(jobRef, {
+        status,
+      });
+
+      const updated = await fetchJobs();
+
+      setJobs(updated);
+
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  };
+
+  const submitReview = async (job) => {
+    try {
+      await createReview({
+        jobId: job.id,
+        reviewerId: user.uid,
+        revieweeId: job.workerId,
+
+        rating,
+        comment: reviewText,
+
+        createdAt: new Date(),
+      });
+
+      alert('Review submitted');
+
+      setReviewText('');
+      setRating(5);
+
+    } catch (err) {
+      console.error(err);
       alert(err.message);
     }
   };
@@ -416,6 +480,74 @@ export default function App() {
 
               <p>Pay: £{job.pay}</p>
 
+              {job.status === 'completed' && (
+                <button
+                  onClick={() =>
+                    updateJobStatus(job.id, 'confirmed')
+                  }
+                  style={{
+                    padding: '6px 10px',
+                    background: 'green',
+                    color: 'white',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Confirm Completion
+                </button>
+              )}
+
+              {job.status === 'confirmed' && (
+                <div style={{ marginTop: 15 }}>
+                  <h4>Leave Review Score 1-5</h4>
+
+                  <input
+                    type="number"
+                    min="1"
+                    max="5"
+                    value={rating}
+                    onChange={(e) =>
+                      setRating(Number(e.target.value))
+                    }
+                    style={{
+                      padding: 6,
+                      marginBottom: 10,
+                      width: 80
+                    }}
+                  />
+
+                  <br />
+
+                  <textarea
+                    placeholder="Write review..."
+                    value={reviewText}
+                    onChange={(e) =>
+                      setReviewText(e.target.value)
+                    }
+                    style={{
+                      width: 300,
+                      height: 80,
+                      padding: 8,
+                      marginBottom: 10
+                    }}
+                  />
+
+                  <br />
+
+                  <button
+                    onClick={() => submitReview(job)}
+                    style={{
+                      padding: '6px 10px',
+                      background: 'black',
+                      color: 'white',
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Submit Review
+                  </button>
+                </div>
+              )}
               {job.workerId && (
                 <p>Worker Assigned ✅</p>
               )}
@@ -490,6 +622,65 @@ export default function App() {
               <p>Status: {job.status}</p>
 
               <p>Location: {job.location}</p>
+
+              {job.status === 'assigned' && (
+                <button
+                  onClick={() =>
+                    updateJobStatus(job.id, 'in_progress')
+                  }
+                  style={{
+                    padding: '6px 10px',
+                    background: 'orange',
+                    color: 'white',
+                    border: 'none',
+                    cursor: 'pointer',
+                    marginRight: 10
+                  }}
+                >
+                  Start Job
+                </button>
+              )}
+
+              {job.status === 'in_progress' && (
+                <button
+                  onClick={() =>
+                    updateJobStatus(job.id, 'completed')
+                  }
+                  style={{
+                    padding: '6px 10px',
+                    background: 'blue',
+                    color: 'white',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Mark Complete
+                </button>
+              )}
+            </div>
+          ))}
+
+          <h2>My Reviews</h2>
+
+          {reviews.length === 0 && (
+            <p>No reviews yet</p>
+          )}
+
+          {reviews.map((review) => (
+            <div
+              key={review.id}
+              style={{
+                border: '1px solid #ddd',
+                padding: 15,
+                marginBottom: 10,
+                borderRadius: 8
+              }}
+            >
+              <p>
+                Rating: ⭐ {review.rating}/5
+              </p>
+
+              <p>{review.comment}</p>
             </div>
           ))}
         </>
