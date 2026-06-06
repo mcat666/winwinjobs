@@ -1,17 +1,14 @@
-import {
-  createReview,
-  fetchReviewsForUser
-} from './services/reviews';
-
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 
 import { auth } from './firebase';
 import { signup, login, logout } from './services/auth';
-import { createUserProfile, getUserProfile } from './services/users';
-import { createJob, fetchJobs } from './services/jobs';
 
-import { doc, updateDoc } from "firebase/firestore";
+import { getUserProfile } from './services/users';
+import { createJob, fetchJobs } from './services/jobs';
+import { createReview, fetchReviewsForUser } from './services/reviews';
+
+import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
 export default function App() {
@@ -47,27 +44,39 @@ export default function App() {
 
   const [reviews, setReviews] = useState([]);
 
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+
   // ---------------- AUTH ----------------
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        setUser(null);
-        return;
-      }
+  const unsub = onAuthStateChanged(auth, async (u) => {
+    if (!u) {
+      setUser(null);
+      return;
+    }
 
-      let profile = null;
+    // 🔥 FORCE REFRESH FIREBASE USER STATE
+    await u.reload();
 
-      try {
-        profile = await getUserProfile(u.uid);
-      } catch (e) {
-        console.log('Profile load failed', e);
-      }
+    if (!u.emailVerified) {
+      await logout();
+      setUser(null);
+      return;
+    }
 
-      setUser({
-        ...u,
-        role: profile?.role || 'client',
-      });
+    let profile = null;
+
+    try {
+      profile = await getUserProfile(u.uid);
+    } catch (e) {
+      console.log('Profile load failed', e);
+    }
+
+    setUser({
+      ...u,
+      role: profile?.role || 'client',
     });
+  });
 
     return () => unsub();
   }, []);
@@ -93,6 +102,126 @@ export default function App() {
     }
 
   }, [user]);
+
+  const handleSignup = async () => {
+    try {
+
+      setLoading(true);
+      setMessage("Creating account...");
+
+      const cred = await signup(email, password);
+
+      // create Firestore profile
+      await setDoc(doc(db, "users", cred.user.uid), {
+        uid: cred.user.uid,
+        email: cred.user.email,
+        role: role,
+        createdAt: new Date(),
+        emailVerified: false
+      });
+
+      // 🚨 FORCE LOGOUT (this is what you're missing or not triggering)
+      
+
+      setMessage(
+        "Account created. Please verify your email before logging in."
+      );
+
+
+    } catch (err) {
+
+
+      switch (err.code) {
+
+        case 'auth/invalid-email':
+          setMessage('Please enter a valid email address.');
+          break;
+
+        case 'auth/email-already-in-use':
+          setMessage('An account already exists with this email.');
+          break;
+
+        case 'auth/invalid-credential':
+          setMessage('Incorrect email or password.');
+          break;
+
+        case 'auth/user-not-found':
+          setMessage('No account found for this email.');
+          break;
+
+        case 'auth/wrong-password':
+          setMessage('Incorrect password.');
+          break;
+
+        case 'auth/weak-password':
+          setMessage('Password must be at least 6 characters.');
+          break;
+
+        default:
+          setMessage('Something went wrong. Please try again.');
+      }
+
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    try {
+
+      setLoading(true);
+      setMessage("Logging in...");
+
+      const cred = await login(email, password);
+
+      if (!cred.user.emailVerified) {
+        setMessage("Please verify your email first.");
+
+        await logout();
+
+        return;
+      }
+
+      setMessage("Login successful");
+
+    } catch (err) {
+
+      switch (err.code) {
+
+        case 'auth/invalid-email':
+          setMessage('Please enter a valid email address.');
+          break;
+
+        case 'auth/email-already-in-use':
+          setMessage('An account already exists with this email.');
+          break;
+
+        case 'auth/invalid-credential':
+          setMessage('Incorrect email or password.');
+          break;
+
+        case 'auth/user-not-found':
+          setMessage('No account found for this email.');
+          break;
+
+        case 'auth/wrong-password':
+          setMessage('Incorrect password.');
+          break;
+
+        case 'auth/weak-password':
+          setMessage('Password must be at least 6 characters.');
+          break;
+
+        default:
+          setMessage('Something went wrong. Please try again.');
+      }
+
+    } finally {
+
+      setLoading(false);
+
+    }
+  };
 
   // ---------------- CREATE JOB ----------------
   const handleCreateJob = async () => {
@@ -213,9 +342,24 @@ export default function App() {
   };
 
   // ---------------- LOGIN SCREEN ----------------
+
   if (!user) {
     return (
       <div style={{ padding: 20 }}>
+
+        {message && (
+          <div
+            style={{
+              padding: 10,
+              marginBottom: 15,
+              background: '#e5e7eb',
+              borderRadius: 8
+            }}
+          >
+            {message}
+          </div>
+        )}
+
         <h2>Login</h2>
 
         <input
@@ -243,6 +387,8 @@ export default function App() {
           }}
         />
 
+
+
         <div style={{ marginBottom: 10 }}>
           <label>
             <input
@@ -266,57 +412,36 @@ export default function App() {
         </div>
 
         <button
-          onClick={async () => {
-            try {
-              console.log("SIGNUP CLICKED", email, password);
-
-              const cred = await signup(email, password);
-
-              console.log("USER CREATED:", cred.user.uid);
-
-              await createUserProfile(cred.user, role);
-
-            } catch (err) {
-              console.error(err);
-              alert(err.message);
-            }
-          }}
+          onClick={handleSignup}
+          disabled={loading}
           style={{
-            padding: '8px 12px',
-            background: 'black',
+            background: '#16a34a',
             color: 'white',
+            padding: '10px 20px',
+            borderRadius: 8,
+            border: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          {loading ? 'Loading...' : 'Sign Up'}
+        </button>
+
+        <button
+          onClick={handleLogin}
+          disabled={loading}
+          style={{
+            background: '#111827',
+            color: 'white',
+            padding: '10px 20px',
+            borderRadius: 8,
             border: 'none',
             cursor: 'pointer',
             marginRight: 10
           }}
         >
-          Sign Up
+          {loading ? 'Loading...' : 'Login'}
         </button>
 
-        <button
-          onClick={async () => {
-            try {
-              console.log("LOGIN CLICKED", email, password);
-
-              const cred = await login(email, password);
-
-              console.log("LOGIN SUCCESS:", cred.user.uid);
-
-            } catch (err) {
-              console.error(err);
-              alert(err.message);
-            }
-          }}
-          style={{
-            padding: '8px 12px',
-            background: 'green',
-            color: 'white',
-            border: 'none',
-            cursor: 'pointer'
-          }}
-        >
-          Login
-        </button>
       </div>
     );
   }
