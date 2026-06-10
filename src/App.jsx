@@ -8,7 +8,7 @@ import { getUserProfile } from './services/users';
 import { createJob, fetchJobs } from './services/jobs';
 import { createReview, fetchReviewsForUser } from './services/reviews';
 
-import { doc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
 export default function App() {
@@ -46,37 +46,37 @@ export default function App() {
 
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isSignup, setIsSignup] = useState(true);
 
   // ---------------- AUTH ----------------
   useEffect(() => {
-  const unsub = onAuthStateChanged(auth, async (u) => {
-    if (!u) {
-      setUser(null);
-      return;
-    }
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        setUser(null);
+        return;
+      }
 
-    // 🔥 FORCE REFRESH FIREBASE USER STATE
-    await u.reload();
+      try {
+        const userRef = doc(db, "users", u.uid);
+        const snap = await getDoc(userRef);
 
-    if (!u.emailVerified) {
-      await logout();
-      setUser(null);
-      return;
-    }
+        if (!snap.exists()) {
+          setUser(null);
+          return;
+        }
 
-    let profile = null;
+        const profile = snap.data();
 
-    try {
-      profile = await getUserProfile(u.uid);
-    } catch (e) {
-      console.log('Profile load failed', e);
-    }
+        setUser({
+          ...u,
+          role: profile.role,
+        });
 
-    setUser({
-      ...u,
-      role: profile?.role || 'client',
+      } catch (err) {
+        console.error(err);
+        setUser(null);
+      }
     });
-  });
 
     return () => unsub();
   }, []);
@@ -105,28 +105,32 @@ export default function App() {
 
   const handleSignup = async () => {
     try {
-
       setLoading(true);
       setMessage("Creating account...");
 
       const cred = await signup(email, password);
 
-      // create Firestore profile
-      await setDoc(doc(db, "users", cred.user.uid), {
-        uid: cred.user.uid,
-        email: cred.user.email,
+      const user = cred.user;
+
+      // 1. create profile FIRST
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        email: user.email,
         role: role,
         createdAt: new Date(),
         emailVerified: false
       });
 
-      // 🚨 FORCE LOGOUT (this is what you're missing or not triggering)
-      
+      // 2. force refresh user state (important for Firebase email system)
+      await user.reload();
 
-      setMessage(
-        "Account created. Please verify your email before logging in."
-      );
+      // 3. send verification email (CRITICAL STEP)
+      await sendEmailVerification(user);
 
+      setMessage("Verification email sent. Please check your inbox.");
+
+      // 4. logout AFTER everything is done
+      await logout();
 
     } catch (err) {
 
@@ -387,61 +391,71 @@ export default function App() {
           }}
         />
 
+        {isSignup && (
+          <div style={{ marginBottom: 10 }}>
+            <label>
+              <input
+                type="radio"
+                value="client"
+                checked={role === 'client'}
+                onChange={(e) => setRole(e.target.value)}
+              />
+              Client
+            </label>
 
+            <label style={{ marginLeft: 20 }}>
+              <input
+                type="radio"
+                value="worker"
+                checked={role === 'worker'}
+                onChange={(e) => setRole(e.target.value)}
+              />
+              Worker
+            </label>
+          </div>
+        )}
 
-        <div style={{ marginBottom: 10 }}>
-          <label>
-            <input
-              type="radio"
-              value="client"
-              checked={role === 'client'}
-              onChange={(e) => setRole(e.target.value)}
-            />
-            Client
-          </label>
+        {isSignup ? (
+          <button
+            onClick={handleSignup}
+            disabled={loading}
+            style={{
+              background: '#16a34a',
+              color: 'white',
+              padding: '10px 20px',
+              borderRadius: 8,
+              border: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            {loading ? 'Loading...' : 'Sign Up'}
+          </button>
+        ) : (
+          <button
+            onClick={handleLogin}
+            disabled={loading}
+            style={{
+              background: '#111827',
+              color: 'white',
+              padding: '10px 20px',
+              borderRadius: 8,
+              border: 'none',
+              cursor: 'pointer',
+              marginRight: 10
+            }}
+          >
+            {loading ? 'Loading...' : 'Login'}
+          </button>
+        )}
 
-          <label style={{ marginLeft: 20 }}>
-            <input
-              type="radio"
-              value="worker"
-              checked={role === 'worker'}
-              onChange={(e) => setRole(e.target.value)}
-            />
-            Worker
-          </label>
-        </div>
-
-        <button
-          onClick={handleSignup}
-          disabled={loading}
-          style={{
-            background: '#16a34a',
-            color: 'white',
-            padding: '10px 20px',
-            borderRadius: 8,
-            border: 'none',
-            cursor: 'pointer'
-          }}
+        <p
+          onClick={() => setIsSignup(!isSignup)}
+          style={{ cursor: "pointer", marginTop: 10 }}
         >
-          {loading ? 'Loading...' : 'Sign Up'}
-        </button>
-
-        <button
-          onClick={handleLogin}
-          disabled={loading}
-          style={{
-            background: '#111827',
-            color: 'white',
-            padding: '10px 20px',
-            borderRadius: 8,
-            border: 'none',
-            cursor: 'pointer',
-            marginRight: 10
-          }}
-        >
-          {loading ? 'Loading...' : 'Login'}
-        </button>
-
+          {isSignup
+            ? "Already have an account? Login"
+            : "Need an account? Sign up"}
+        </p>
       </div>
     );
   }
