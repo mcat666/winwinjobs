@@ -1,3 +1,5 @@
+import LoginForm from "./components/LoginForm";
+
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -39,14 +41,13 @@ export default function App() {
   });
   const [role, setRole] = useState('client');
 
-  const [reviewText, setReviewText] = useState('');
-  const [rating, setRating] = useState(5);
+  const [reviewDrafts, setReviewDrafts] = useState({});
 
   const [reviews, setReviews] = useState([]);
 
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isSignup, setIsSignup] = useState(true);
+  const [isSignup, setIsSignup] = useState(false);
 
   // ---------------- AUTH ----------------
   useEffect(() => {
@@ -287,11 +288,11 @@ export default function App() {
       const jobRef = doc(db, "jobs", jobId);
 
       await updateDoc(jobRef, {
-        status: "assigned",
+        status: "pending_approval",
         workerId: user.uid,
       });
 
-      console.log("JOB ASSIGNED");
+      console.log("JOB PENDING APPROVAL");
 
       // refresh jobs from Firestore
       const updated = await fetchJobs();
@@ -328,16 +329,22 @@ export default function App() {
         reviewerId: user.uid,
         revieweeId: job.workerId,
 
-        rating,
-        comment: reviewText,
+        rating: reviewDrafts[job.id]?.rating || 5,
+        comment: reviewDrafts[job.id]?.comment || '',
 
         createdAt: new Date(),
       });
 
       alert('Review submitted');
 
-      setReviewText('');
-      setRating(5);
+      setReviewDrafts({
+        ...reviewDrafts,
+        [job.id]: {
+          rating: 5,
+          comment: ''
+        }
+      });
+
 
     } catch (err) {
       console.error(err);
@@ -345,120 +352,49 @@ export default function App() {
     }
   };
 
-  // ---------------- LOGIN SCREEN ----------------
+  const getWorkerStats = (workerId) => {
+    const workerReviews = reviews.filter(
+      (r) => r.revieweeId === workerId
+    );
 
+    if (workerReviews.length === 0) {
+      return {
+        average: 0,
+        count: 0,
+      };
+    }
+
+    const sum = workerReviews.reduce(
+      (acc, r) => acc + r.rating,
+      0
+    );
+
+    return {
+      average: sum / workerReviews.length,
+      count: workerReviews.length,
+    };
+  };
+
+  // ---------------- Login Form ----------------
   if (!user) {
     return (
-      <div style={{ padding: 20 }}>
-
-        {message && (
-          <div
-            style={{
-              padding: 10,
-              marginBottom: 15,
-              background: '#e5e7eb',
-              borderRadius: 8
-            }}
-          >
-            {message}
-          </div>
-        )}
-
-        <h2>Login</h2>
-
-        <input
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={{
-            display: 'block',
-            marginBottom: 10,
-            padding: 8,
-            width: 250
-          }}
-        />
-
-        <input
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={{
-            display: 'block',
-            marginBottom: 10,
-            padding: 8,
-            width: 250
-          }}
-        />
-
-        {isSignup && (
-          <div style={{ marginBottom: 10 }}>
-            <label>
-              <input
-                type="radio"
-                value="client"
-                checked={role === 'client'}
-                onChange={(e) => setRole(e.target.value)}
-              />
-              Client
-            </label>
-
-            <label style={{ marginLeft: 20 }}>
-              <input
-                type="radio"
-                value="worker"
-                checked={role === 'worker'}
-                onChange={(e) => setRole(e.target.value)}
-              />
-              Worker
-            </label>
-          </div>
-        )}
-
-        {isSignup ? (
-          <button
-            onClick={handleSignup}
-            disabled={loading}
-            style={{
-              background: '#16a34a',
-              color: 'white',
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            {loading ? 'Loading...' : 'Sign Up'}
-          </button>
-        ) : (
-          <button
-            onClick={handleLogin}
-            disabled={loading}
-            style={{
-              background: '#111827',
-              color: 'white',
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: 'none',
-              cursor: 'pointer',
-              marginRight: 10
-            }}
-          >
-            {loading ? 'Loading...' : 'Login'}
-          </button>
-        )}
-
-        <p
-          onClick={() => setIsSignup(!isSignup)}
-          style={{ cursor: "pointer", marginTop: 10 }}
-        >
-          {isSignup
-            ? "Already have an account? Login"
-            : "Need an account? Sign up"}
-        </p>
-      </div>
+      <LoginForm
+        email={email}
+        setEmail={setEmail}
+        password={password}
+        setPassword={setPassword}
+        role={role}
+        setRole={setRole}
+        message={message}
+        loading={loading}
+        handleLogin={handleLogin}
+        handleSignup={handleSignup}
+        isSignup={isSignup}
+        setIsSignup={setIsSignup}
+      />
     );
   }
+
   // ---------------- MAIN APP ----------------
   return (
     <div style={{ padding: 20, fontFamily: 'Arial' }}>
@@ -467,8 +403,6 @@ export default function App() {
       <p>
         Logged in as: <b>{user.email}</b> ({user.role})
       </p>
-
-
 
       <button
         onClick={() => {
@@ -595,6 +529,56 @@ export default function App() {
       {/* CLIENT DASHBOARD */}
       {user.role === 'client' && (
         <>
+
+          <h2>Pending Worker Requests</h2>
+
+          {jobs
+            .filter(job => job.status === "pending_approval" && job.clientId === user.uid)
+            .map(job => {
+              const stats = getWorkerStats(job.workerId);
+
+              return (
+                <div
+                  key={job.id}
+                  style={{
+                    border: '1px solid #ddd',
+                    padding: 15,
+                    marginBottom: 10,
+                    borderRadius: 8
+                  }}
+                >
+                  <h3>{job.title}</h3>
+
+                  <p>Worker ID: {job.workerId}</p>
+
+                  <p>
+                    ⭐ {stats.average.toFixed(1)} ({stats.count} reviews)
+                  </p>
+
+                  <button
+                    onClick={async () => {
+                      const jobRef = doc(db, "jobs", job.id);
+
+                      await updateDoc(jobRef, {
+                        status: "assigned"
+                      });
+
+                      const updated = await fetchJobs();
+                      setJobs(updated);
+                    }}
+                    style={{
+                      padding: '6px 10px',
+                      background: 'green',
+                      color: 'white',
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Approve Worker
+                  </button>
+                </div>
+              );
+            })}
           <h2>My Posted Jobs</h2>
 
           {clientJobs.length === 0 && (
@@ -644,9 +628,15 @@ export default function App() {
                     type="number"
                     min="1"
                     max="5"
-                    value={rating}
+                    value={reviewDrafts[job.id]?.rating || 5}
                     onChange={(e) =>
-                      setRating(Number(e.target.value))
+                      setReviewDrafts({
+                        ...reviewDrafts,
+                        [job.id]: {
+                          ...reviewDrafts[job.id],
+                          rating: Number(e.target.value)
+                        }
+                      })
                     }
                     style={{
                       padding: 6,
@@ -659,9 +649,15 @@ export default function App() {
 
                   <textarea
                     placeholder="Write review..."
-                    value={reviewText}
+                    value={reviewDrafts[job.id]?.comment || ''}
                     onChange={(e) =>
-                      setReviewText(e.target.value)
+                      setReviewDrafts({
+                        ...reviewDrafts,
+                        [job.id]: {
+                          ...reviewDrafts[job.id],
+                          comment: e.target.value
+                        }
+                      })
                     }
                     style={{
                       width: 300,
@@ -687,9 +683,19 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {job.workerId && (
-                <p>Worker Assigned ✅</p>
-              )}
+              {job.workerId && (() => {
+                const stats = getWorkerStats(job.workerId);
+
+                return (
+                  <div>
+                    <p>Worker Assigned ✅</p>
+
+                    <p>
+                      ⭐ {stats.average.toFixed(1)} ({stats.count} reviews)
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </>
@@ -762,7 +768,7 @@ export default function App() {
 
               <p>Location: {job.location}</p>
 
-              {job.status === 'assigned' && (
+              {(job.status === 'assigned' || job.status === "pending_approval") && (
                 <button
                   onClick={() =>
                     updateJobStatus(job.id, 'in_progress')
@@ -801,27 +807,41 @@ export default function App() {
 
           <h2>My Reviews</h2>
 
-          {reviews.length === 0 && (
-            <p>No reviews yet</p>
-          )}
+          {(() => {
+            const myStats = getWorkerStats(user.uid);
 
-          {reviews.map((review) => (
-            <div
-              key={review.id}
-              style={{
-                border: '1px solid #ddd',
-                padding: 15,
-                marginBottom: 10,
-                borderRadius: 8
-              }}
-            >
-              <p>
-                Rating: ⭐ {review.rating}/5
-              </p>
+            return (
+              <>
+                {/* STATS */}
+                {myStats.count === 0 ? (
+                  <p>No reviews yet</p>
+                ) : (
+                  <p>
+                    ⭐ Average Rating: {myStats.average.toFixed(1)} <br />
+                    💬 Total Reviews: {myStats.count}
+                  </p>
+                )}
 
-              <p>{review.comment}</p>
-            </div>
-          ))}
+                {/* REVIEW LIST */}
+                {reviews
+                  .filter((r) => r.revieweeId === user.uid)
+                  .map((review) => (
+                    <div
+                      key={review.id}
+                      style={{
+                        border: '1px solid #ddd',
+                        padding: 15,
+                        marginBottom: 10,
+                        borderRadius: 8
+                      }}
+                    >
+                      <p>Rating: ⭐ {review.rating}/5</p>
+                      <p>{review.comment}</p>
+                    </div>
+                  ))}
+              </>
+            );
+          })()}
         </>
       )}
     </div>
